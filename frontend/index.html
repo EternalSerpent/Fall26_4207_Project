@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>A Fake Artist Goes to WashU</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #1e1e24;
+      font-family: system-ui, sans-serif;
+      color: #ddd;
+    }
+    #board {
+      width: 100%;
+      max-width: 900px;
+      aspect-ratio: 4 / 3;
+      background: #fff;
+      border-radius: 8px;
+      touch-action: none;   /* stops the page scrolling while you draw */
+    }
+    #bar { display: flex; gap: 12px; align-items: center; }
+    button { padding: 8px 16px; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <canvas id="board" width="1200" height="900"></canvas>
+  <div id="bar">
+    <button id="clear">Clear</button>
+    <span id="status">connecting…</span>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+
+    // Who am I? A random id and color, fresh on every page load.
+    const playerId = Math.random().toString(36).slice(2, 8);
+    const color = `hsl(${Math.floor(Math.random() * 360)}, 80%, 45%)`;
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 6;
+
+    // ---------- WebSocket ----------
+    let ws;
+    function connect() {
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${scheme}://${location.host}/ws`);
+      ws.onopen = () => (statusEl.textContent = "connected");
+      ws.onclose = () => {
+        statusEl.textContent = "disconnected, retrying…";
+        setTimeout(connect, 1000);
+      };
+      ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+    }
+    connect();
+
+    function send(msg) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
+
+    // ---------- Drawing (only happens when a message comes BACK from the server) ----------
+    const lastPoint = {};  // last point per player, so each player's lines connect
+
+    function handleMessage(msg) {
+      if (msg.type === "clear") {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+      if (msg.type !== "stroke") return;
+
+      const x = msg.x * canvas.width;   // convert 0–1 back to canvas pixels
+      const y = msg.y * canvas.height;
+      ctx.strokeStyle = msg.color;
+
+      if (msg.phase === "start") {
+        lastPoint[msg.player] = { x, y };
+        ctx.beginPath();                // draw a dot so a tap leaves a mark
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + 0.01, y);
+        ctx.stroke();
+      } else if (msg.phase === "move" && lastPoint[msg.player]) {
+        const p = lastPoint[msg.player];
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        lastPoint[msg.player] = { x, y };
+      } else if (msg.phase === "end") {
+        delete lastPoint[msg.player];
+      }
+    }
+
+    // ---------- Input (pointer events work for mouse, touch, and pen) ----------
+    let drawing = false;
+
+    function normalized(e) {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) / r.width,    // 0–1, independent of screen size
+        y: (e.clientY - r.top) / r.height,
+      };
+    }
+
+    function sendStroke(phase, e) {
+      send({ type: "stroke", player: playerId, color, phase, ...normalized(e) });
+    }
+
+    canvas.addEventListener("pointerdown", (e) => {
+      drawing = true;
+      canvas.setPointerCapture(e.pointerId);
+      sendStroke("start", e);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (drawing) sendStroke("move", e);
+    });
+    const stop = (e) => {
+      if (!drawing) return;
+      drawing = false;
+      sendStroke("end", e);
+    };
+    canvas.addEventListener("pointerup", stop);
+    canvas.addEventListener("pointercancel", stop);
+
+    document.getElementById("clear").addEventListener("click", () => send({ type: "clear" }));
+  </script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -46,3 +48,6 @@ async def ws_endpoint(ws: WebSocket):
             await publish(text)
     except WebSocketDisconnect:
         clients.discard(ws)
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
