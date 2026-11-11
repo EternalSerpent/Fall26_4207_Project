@@ -1,0 +1,11 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# Editors / OS
+# I'm using VS Code, so I want to ignore the settings folder
+.vscode/ 
+.DS_Store
+Thumbs.db
